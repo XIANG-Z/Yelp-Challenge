@@ -1,0 +1,274 @@
+---
+title: "Midterm Project Yelp Data Challenge"
+author: "Xiang Zhao"
+date: "12/2/2017"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+library(dplyr)
+library(tidyr)
+library(lme4)
+library(VGAM)
+library(ggplot2)
+library(arm)
+library(knitr)
+library(grid)
+library(gridExtra)
+```
+
+# 1. Introduction
+
+##Yelp is a website and also an app collecting the informations of business holders and users. With the increasing population from asia, the number of asian restaurants rising quickly and have been more popular than before. For asian restaurants' holders, in order to offer a better quality for customers and making more profits, analyzing the relationship between the rate of restaurants and restaurants' and users' informations is important. So, I collected the data from Yelp using SQL in R and filter four styles of restaurants, Chinese, Japanese, Korean and Southeast Asian restaurants with their attributes like price range and noise level and so on to fit several models to find the relationship between the rate and restaurants' and users' informations.
+
+##At the beginning, I collected the data with all the informations and attributes of restaurants and informations of users. I filter the Chinses, Japanese, Korean and Southeast Asian restaurants with all their informations first. Then I filter six attributes:whether a restaurant has free/paid/no WiFi, the price range of the restaurant, the choices of parking of a restaurant, the noise level of a restaurant, whether a restaurant has a TV or not and whether a restaurant has outdoor seating or not. Next I combined the 'attributes' dataset with 'business' dataset, which gives a whole dataset containing all the informations and attributes of four styles of restaurants. Later, I filter the stars rated by users from 'review' dataset and join it with the 'user' dataset containing users' informations. Finally I join the two datasets of users& reviews and restaurants' informations into one dataset and named it "yelp" which has 472741 rows and 22 variables after cleaning all the NAs.
+
+##After getting the clean dataset, I first did EDA especially on the relationships between predictors and response graphically. Then I designed several models to analyze and check these potential relationships statistically and numerically. Finally I summarized the conclusions.
+
+# 2. Data & Method
+
+##2.1Data source
+
+###The data is from yelp: https://www.yelp.com/dataset/challenge.
+###Due to the huge size of dataset after filtering, I saved the filtered dataset into RDS file and reread it in another Rmd file then analyzing. If you need to see the code of reading and cleaning the data, look at 'Data collecting & cleaning.Rmd'.
+
+##2.2Method
+
+###Tools: SQL, R, csv, RDS, online searching
+###Packages & Functions: ggplot2::ggplot, lme4::lmer&glmer, VGAM::vglm
+###Models: Multilevel linear model, ordered categorical regression
+
+```{r}
+yelp <- readRDS("restaurants_users.rds")
+```
+
+```{r}
+#After checking the dataset for inputting errors, I found 3 data points with unusual format in 'restaurant_state'. So I delect these 3 rows.
+#yelp%>%
+#  count(restaurant_state)
+yelp$restaurant_state[yelp$restaurant_state == "01"] <- NA
+yelp <- na.omit(yelp)
+#Sampel the subset of data to fit the model.
+mysample <- yelp[sample(1:nrow(yelp),1000,replace = F),]
+```
+
+# 3.EDA
+
+```{r}
+style_stars <- yelp %>%
+  group_by(restaurant_style)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+style.1 <- ggplot() + geom_bar(aes(y = n, x = restaurant_style, fill = factor(user_stars)), data = style_stars, stat="identity")
+style.2 <- ggplot() + geom_bar(aes(y = percent, x = restaurant_style, fill = factor(user_stars)), data = style_stars, stat="identity")
+```
+
+```{r}
+WiFi_stars <- yelp %>%
+  group_by(restaurant_WiFi)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+wifi.1 <- ggplot() + geom_bar(aes(y = n, x = restaurant_WiFi, fill = factor(user_stars)), data = WiFi_stars, stat="identity")
+wifi.2 <- ggplot() + geom_bar(aes(y = percent, x = restaurant_WiFi, fill = factor(user_stars)), data = WiFi_stars, stat="identity")
+```
+
+```{r}
+price_stars <- yelp %>%
+  group_by(restaurant_price_range)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+price.1 <- ggplot() + geom_bar(aes(y = n, x = restaurant_price_range, fill = factor(user_stars)), data = price_stars, stat="identity")
+price.2 <- ggplot() + geom_bar(aes(y = percent, x = restaurant_price_range, fill = factor(user_stars)), data = price_stars, stat="identity")
+```
+
+```{r}
+garage_stars <- yelp %>%
+  group_by(garage_parking)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+garage.1 <- ggplot() + geom_bar(aes(y = n, x = garage_parking, fill = factor(user_stars)), data = garage_stars, stat="identity")
+garage.2 <- ggplot() + geom_bar(aes(y = percent, x = garage_parking, fill = factor(user_stars)), data = garage_stars, stat="identity")
+```
+
+```{r}
+street_stars <- yelp %>%
+  group_by(street_parking)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+street.1 <- ggplot() + geom_bar(aes(y = n, x = street_parking, fill = factor(user_stars)), data = street_stars, stat="identity")
+street.2 <- ggplot() + geom_bar(aes(y = percent, x = street_parking, fill = factor(user_stars)), data = street_stars, stat="identity")
+```
+
+```{r}
+validated_stars <- yelp %>%
+  group_by(validated_parking)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+validated.1 <- ggplot() + geom_bar(aes(y = n, x = validated_parking, fill = factor(user_stars)), data = validated_stars, stat="identity")
+validated.2 <- ggplot() + geom_bar(aes(y = percent, x = validated_parking, fill = factor(user_stars)), data = validated_stars, stat="identity")
+```
+
+```{r}
+lot_stars <- yelp %>%
+  group_by(lot_parking)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+lot.1 <- ggplot() + geom_bar(aes(y = n, x = lot_parking, fill = factor(user_stars)), data = lot_stars, stat="identity")
+lot.2 <- ggplot() + geom_bar(aes(y = percent, x = lot_parking, fill = factor(user_stars)), data = lot_stars, stat="identity")
+```
+
+```{r}
+valet_stars <- yelp %>%
+  group_by(valet_parking)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+valet.1 <- ggplot() + geom_bar(aes(y = n, x = valet_parking, fill = factor(user_stars)), data = valet_stars, stat="identity")
+valet.2 <- ggplot() + geom_bar(aes(y = percent, x = valet_parking, fill = factor(user_stars)), data = valet_stars, stat="identity")
+```
+
+```{r}
+noise_stars <- yelp %>%
+  group_by(restaurant_noise_level)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+noise.1 <- ggplot() + geom_bar(aes(y = n, x = restaurant_noise_level, fill = factor(user_stars)), data = noise_stars, stat="identity")
+noise.2 <- ggplot() + geom_bar(aes(y = percent, x = restaurant_noise_level, fill = factor(user_stars)), data = noise_stars, stat="identity")
+```
+
+```{r}
+TV_stars <- yelp %>%
+  group_by(restaurant_TV)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+tv.1 <- ggplot() + geom_bar(aes(y = n, x = restaurant_TV, fill = factor(user_stars)), data = TV_stars, stat="identity")
+tv.2 <- ggplot() + geom_bar(aes(y = percent, x = restaurant_TV, fill = factor(user_stars)), data = TV_stars, stat="identity")
+```
+
+```{r}
+outdoor_stars <- yelp %>%
+  group_by(restaurant_outdoor_seating)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+outdoor.1 <- ggplot() + geom_bar(aes(y = n, x = restaurant_outdoor_seating, fill = factor(user_stars)), data = outdoor_stars, stat="identity")
+outdoor.2 <- ggplot() + geom_bar(aes(y = percent, x = restaurant_outdoor_seating, fill = factor(user_stars)), data = outdoor_stars, stat="identity")
+```
+
+```{r}
+useraverage_stars <- yelp %>%
+  group_by(user_average_stars)%>%
+  count(user_stars)%>%
+  mutate(percent = n/sum(n))
+avg.1 <- ggplot() + geom_jitter(aes(y = user_stars, x = user_average_stars, color = factor(user_stars)), data = useraverage_stars)
+
+avg.2 <- ggplot() + geom_bar(aes(y = percent, x = user_average_stars, fill = factor(user_stars)), data = useraverage_stars, stat="identity")
+```
+
+
+```{r}
+yelp_fit.1 <- vglm(ordered(user_stars) ~ restaurant_style + restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating, family = cumulative(parallel = T), data = mysample)
+summary(yelp_fit.1)
+
+y_hat.1 <- data.frame(fitted.values(yelp_fit.1))
+colnames(y_hat.1) <- c("1","2","3","4","5")
+res.1 <- data.frame(resid(yelp_fit.1, type = "response"))
+colnames(res.1) <- c("1","2","3","4","5")
+```
+
+```{r}
+binnedplot(y_hat.1$`1`,res.1$`1`)
+binnedplot(y_hat.1$`2`,res.1$`2`)
+binnedplot(y_hat.1$`3`,res.1$`3`)
+binnedplot(y_hat.1$`4`,res.1$`4`)
+binnedplot(y_hat.1$`5`,res.1$`5`)
+```
+
+```{r}
+```
+
+```{r}
+yelp_fit.2 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_style) + (1|restaurant_city:restaurant_state), data = mysample)
+summary(yelp_fit.2)
+
+yelp_hat.2 <- fitted.values(yelp_fit.2)
+yelp_res.2 <- resid(yelp_fit.2)
+binnedplot(yelp_hat.2,yelp_res.2)
+```
+
+```{r}
+#Chinese
+chinese <- yelp%>%
+  filter(restaurant_style == "Chinese")
+chinese_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = chinese)
+summary(chinese_fit.1)
+chinese_coef <- data.frame(chinese_fit.1@beta)
+
+chinese_hat.1 <- fitted.values(chinese_fit.1)
+chinese_res.1 <- resid(chinese_fit.1)
+binnedplot(chinese_hat.1,chinese_res.1)
+```
+
+```{r}
+#Japanese
+japanese <- yelp%>%
+  filter(restaurant_style == "Japanese")
+japanese_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = japanese)
+summary(japanese_fit.1)
+japanese_coef <- data.frame(japanese_fit.1@beta)
+
+japanese_hat.1 <- fitted.values(japanese_fit.1)
+japanese_res.1 <- resid(japanese_fit.1)
+binnedplot(japanese_hat.1,japanese_res.1)
+```
+
+```{r}
+#Korean
+#korean_sample <- yelp[sample(1:nrow(yelp),6000,replace = F),]
+korean <- yelp%>%
+  filter(restaurant_style == "Korean")
+korean_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = korean)
+summary(korean_fit.1)
+korean_coef <- data.frame(korean_fit.1@beta)
+
+korean_hat.1 <- fitted.values(korean_fit.1)
+korean_res.1 <- resid(korean_fit.1)
+binnedplot(korean_hat.1,korean_res.1)
+```
+
+```{r}
+#Southeast Asian
+se_asian <- yelp%>%
+  filter(restaurant_style == "Southeast Asian")
+se_asian_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = se_asian)
+summary(se_asian_fit.1)
+se_coef <- data.frame(se_asian_fit.1@beta)
+
+seasian_hat.1 <- fitted.values(se_asian_fit.1)
+seasian_res.1 <- resid(se_asian_fit.1)
+binnedplot(seasian_hat.1,seasian_res.1)
+```
+
+```{r}
+coefs <- cbind(chinese_coef,japanese_coef,se_coef)
+
+rownames(coefs) <- c("Intercept","restaurant_WiFino","restaurant_WiFipaid","restaurant_price_range2","restaurant_price_range3","restaurant_price_range4","garage_parking true","street_parking true","validated_parking true","lot_parking true","valet_parking true","restaurant_noise_levelloud","restaurant_noise_levelquiet","restaurant_noise_levelvery_loud","restaurant_TV1","restaurant_outdoor_seating1")
+
+coefs[1:5,4] <- korean_coef[1:5,1]
+coefs[6,4] <- NA
+coefs[7:16,4] <- korean_coef[6:15,1]
+
+colnames(coefs) <- c("Chinese Restaurant","Japanese Restaurant","Southeast Asian Restaurant","Korean Restaurant")
+
+kable(coefs)
+```
+
+```{r}
+#Random effect
+random <- data.frame(matrix(c(0.1033,0.1465,0.1203,0.09686),byrow = T))
+colnames(random)[1] <- "city:state"
+rownames(random) <- c("Chinese","Japanese","Korean","Southeast Asian")
+kable(random)
+```
+
+
+
