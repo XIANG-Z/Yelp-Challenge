@@ -4,7 +4,6 @@ author: "Xiang Zhao"
 date: "12/2/2017"
 output: pdf_document
 ---
-
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F)
 library(dplyr)
@@ -26,14 +25,15 @@ library(gridExtra)
 
 ##After getting the clean dataset, I first did EDA especially on the relationships between predictors and response graphically. Then I designed several models to analyze and check these potential relationships statistically and numerically. Finally I summarized the conclusions.
 
+\newpage
 # 2. Data & Method
 
-##2.1Data source
+##2.1 Data source
 
 ###The data is from yelp: https://www.yelp.com/dataset/challenge.
 ###Due to the huge size of dataset after filtering, I saved the filtered dataset into RDS file and reread it in another Rmd file then analyzing. If you need to see the code of reading and cleaning the data, look at 'Data collecting & cleaning.Rmd'.
 
-##2.2Method
+##2.2 Method
 
 ###Tools: SQL, R, csv, RDS, online searching
 ###Packages & Functions: ggplot2::ggplot, lme4::lmer&glmer, VGAM::vglm
@@ -41,6 +41,10 @@ library(gridExtra)
 
 ```{r}
 yelp <- readRDS("restaurants_users.rds")
+kable(head(yelp[,1:5]))
+kable(head(yelp[,6:10]))
+kable(head(yelp[,11:17]))
+kable(head(yelp[,18:22]))
 ```
 
 ```{r}
@@ -53,7 +57,42 @@ yelp <- na.omit(yelp)
 mysample <- yelp[sample(1:nrow(yelp),1000,replace = F),]
 ```
 
+\newpage
 # 3.EDA
+
+##3.1 Histogram of stars rated by users toward each four styles of restaurants
+
+```{r}
+chinese <- yelp%>%
+  filter(restaurant_style == "Chinese")
+
+japanese <- yelp%>%
+  filter(restaurant_style == "Japanese")
+
+korean <- yelp%>%
+  filter(restaurant_style == "Korean")
+
+se_asian <- yelp%>%
+  filter(restaurant_style == "Southeast Asian")
+
+par(mfrow=c(2,2))
+hist.1 <- hist(chinese$user_stars)
+hist.2 <- hist(japanese$user_stars)
+hist.3 <- hist(korean$user_stars)
+hist.4 <- hist(se_asian$user_stars)
+```
+
+##3.2 Histogram of average stars of each four styles of restaurants
+
+```{r}
+par(mfrow=c(2,2))
+hist(chinese$restaurant_stars)
+hist(japanese$restaurant_stars)
+hist(korean$restaurant_stars)
+hist(se_asian$restaurant_stars)
+```
+
+##3.3 Stacked bar plot of count of stars within each predictor.
 
 ```{r}
 style_stars <- yelp %>%
@@ -164,6 +203,22 @@ avg.1 <- ggplot() + geom_jitter(aes(y = user_stars, x = user_average_stars, colo
 avg.2 <- ggplot() + geom_bar(aes(y = percent, x = user_average_stars, fill = factor(user_stars)), data = useraverage_stars, stat="identity")
 ```
 
+```{r,fig.height=15,fig.width=15}
+grid.arrange(style.1,wifi.1,price.1,garage.1,street.1,validated.1,lot.1,valet.1,noise.1,tv.1,outdoor.1,avg.1,ncol = 3)
+```
+
+##3.4 Stacked bar plot of percentage of stars within each predictor.
+
+```{r,fig.width=15,fig.height=15}
+grid.arrange(style.2,wifi.2,price.2,garage.2,street.2,validated.2,lot.2,valet.2,noise.2,tv.2,outdoor.2,avg.2,ncol = 3)
+```
+
+\newpage
+# 4.Model fitting & Analysis
+
+##4.1 Categorical Regression
+
+###I first fit a categorical regression with the star of a user rating for a certain restaurant as response and the style, price range, noise level, parking conditions and wifi, TV and outdoor seatings of a restaurant as predictors. This model does not have random effects. 
 
 ```{r}
 yelp_fit.1 <- vglm(ordered(user_stars) ~ restaurant_style + restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating, family = cumulative(parallel = T), data = mysample)
@@ -175,7 +230,8 @@ res.1 <- data.frame(resid(yelp_fit.1, type = "response"))
 colnames(res.1) <- c("1","2","3","4","5")
 ```
 
-```{r}
+```{r,fig.height=10,fig.width=15}
+par(mfrow=c(3,2))
 binnedplot(y_hat.1$`1`,res.1$`1`)
 binnedplot(y_hat.1$`2`,res.1$`2`)
 binnedplot(y_hat.1$`3`,res.1$`3`)
@@ -183,8 +239,7 @@ binnedplot(y_hat.1$`4`,res.1$`4`)
 binnedplot(y_hat.1$`5`,res.1$`5`)
 ```
 
-```{r}
-```
+##4.2 Multilevel linear model (combine four styles of restaurants and sample the data for regression)
 
 ```{r}
 yelp_fit.2 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_style) + (1|restaurant_city:restaurant_state), data = mysample)
@@ -195,61 +250,74 @@ yelp_res.2 <- resid(yelp_fit.2)
 binnedplot(yelp_hat.2,yelp_res.2)
 ```
 
+##4.3 Multilevel linear model (separate four styles of restaurants and fit model individually)
+
+### First I fit the model only with data of Chinese restaurants.
+
 ```{r}
 #Chinese
-chinese <- yelp%>%
-  filter(restaurant_style == "Chinese")
 chinese_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = chinese)
 summary(chinese_fit.1)
+
 chinese_coef <- data.frame(chinese_fit.1@beta)
+chinese_se <- data.frame(sqrt(diag(vcov(chinese_fit.1))))
 
 chinese_hat.1 <- fitted.values(chinese_fit.1)
 chinese_res.1 <- resid(chinese_fit.1)
 binnedplot(chinese_hat.1,chinese_res.1)
 ```
 
+### Second I fit the model only with data of Japanese restaurants.
+
 ```{r}
 #Japanese
-japanese <- yelp%>%
-  filter(restaurant_style == "Japanese")
 japanese_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = japanese)
 summary(japanese_fit.1)
+
 japanese_coef <- data.frame(japanese_fit.1@beta)
+japanese_se <- data.frame(sqrt(diag(vcov(japanese_fit.1))))
 
 japanese_hat.1 <- fitted.values(japanese_fit.1)
 japanese_res.1 <- resid(japanese_fit.1)
 binnedplot(japanese_hat.1,japanese_res.1)
 ```
 
+### Third I fit the model only with data of Korean restaurants.
+
 ```{r}
 #Korean
 #korean_sample <- yelp[sample(1:nrow(yelp),6000,replace = F),]
-korean <- yelp%>%
-  filter(restaurant_style == "Korean")
 korean_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = korean)
 summary(korean_fit.1)
+
 korean_coef <- data.frame(korean_fit.1@beta)
+korean_se <- data.frame(sqrt(diag(vcov(korean_fit.1)))) 
 
 korean_hat.1 <- fitted.values(korean_fit.1)
 korean_res.1 <- resid(korean_fit.1)
 binnedplot(korean_hat.1,korean_res.1)
 ```
 
+### Finally I fit the model only with data of Southeast Asian restaurants.
+
 ```{r}
 #Southeast Asian
-se_asian <- yelp%>%
-  filter(restaurant_style == "Southeast Asian")
 se_asian_fit.1 <- lmer(user_stars ~ restaurant_WiFi + restaurant_price_range + garage_parking + street_parking + validated_parking + lot_parking + valet_parking + restaurant_noise_level + restaurant_TV + restaurant_outdoor_seating + (1|restaurant_city:restaurant_state), data = se_asian)
 summary(se_asian_fit.1)
+
 se_coef <- data.frame(se_asian_fit.1@beta)
+se_se <- data.frame(sqrt(diag(vcov(se_asian_fit.1)))) 
 
 seasian_hat.1 <- fitted.values(se_asian_fit.1)
 seasian_res.1 <- resid(se_asian_fit.1)
 binnedplot(seasian_hat.1,seasian_res.1)
 ```
 
+##4.4 Check and comparethe coefficients table
+
 ```{r}
 coefs <- cbind(chinese_coef,japanese_coef,se_coef)
+
 
 rownames(coefs) <- c("Intercept","restaurant_WiFino","restaurant_WiFipaid","restaurant_price_range2","restaurant_price_range3","restaurant_price_range4","garage_parking true","street_parking true","validated_parking true","lot_parking true","valet_parking true","restaurant_noise_levelloud","restaurant_noise_levelquiet","restaurant_noise_levelvery_loud","restaurant_TV1","restaurant_outdoor_seating1")
 
@@ -257,10 +325,68 @@ coefs[1:5,4] <- korean_coef[1:5,1]
 coefs[6,4] <- NA
 coefs[7:16,4] <- korean_coef[6:15,1]
 
-colnames(coefs) <- c("Chinese Restaurant","Japanese Restaurant","Southeast Asian Restaurant","Korean Restaurant")
+colnames(coefs) <- c("Chinese","Japanese","Southeast Asian","Korean")
 
 kable(coefs)
 ```
+
+```{r,fig.width=9}
+chinese_coef$se <- chinese_se$sqrt.diag.vcov.chinese_fit.1...
+chinese_coef$variable <- c("Intercept","restaurant_WiFino","restaurant_WiFipaid","restaurant_price_range2","restaurant_price_range3","restaurant_price_range4","garage_parking true","street_parking true","validated_parking true","lot_parking true","valet_parking true","restaurant_noise_levelloud","restaurant_noise_levelquiet","restaurant_noise_levelvery_loud","restaurant_TV1","restaurant_outdoor_seating1")
+colnames(chinese_coef)[1] <- "coefficients"
+chinese_coef$ymin <- chinese_coef$coefficients - 1.96*chinese_coef$se
+chinese_coef$ymax <- chinese_coef$coefficients + 1.96*chinese_coef$se
+chinese_coef <- chinese_coef[-1,]
+ggplot(chinese_coef, aes(x=variable, y=coefficients)) + 
+  geom_point(size=1.5) +
+  geom_errorbar(aes(ymin=ymin, ymax=ymax)) +
+  geom_hline(yintercept = 0) + 
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+```{r,fig.width=9}
+japanese_coef$se <- japanese_se$sqrt.diag.vcov.japanese_fit.1...
+japanese_coef$variable <- c("Intercept","restaurant_WiFino","restaurant_WiFipaid","restaurant_price_range2","restaurant_price_range3","restaurant_price_range4","garage_parking true","street_parking true","validated_parking true","lot_parking true","valet_parking true","restaurant_noise_levelloud","restaurant_noise_levelquiet","restaurant_noise_levelvery_loud","restaurant_TV1","restaurant_outdoor_seating1")
+colnames(japanese_coef)[1] <- "coefficients"
+japanese_coef$ymin <- japanese_coef$coefficients - 1.96*japanese_coef$se
+japanese_coef$ymax <- japanese_coef$coefficients + 1.96*japanese_coef$se
+japanese_coef <- japanese_coef[-1,]
+ggplot(japanese_coef, aes(x=variable, y=coefficients)) + 
+  geom_point(size=1.5) +
+  geom_errorbar(aes(ymin=ymin, ymax=ymax)) + 
+  geom_hline(yintercept = 0) + 
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+```{r,fig.width=9}
+korean_coef$se <- korean_se$sqrt.diag.vcov.korean_fit.1...
+korean_coef$variable <- c("Intercept","restaurant_WiFino","restaurant_WiFipaid","restaurant_price_range2","restaurant_price_range3","garage_parking true","street_parking true","validated_parking true","lot_parking true","valet_parking true","restaurant_noise_levelloud","restaurant_noise_levelquiet","restaurant_noise_levelvery_loud","restaurant_TV1","restaurant_outdoor_seating1")
+colnames(korean_coef)[1] <- "coefficients"
+korean_coef$ymin <- korean_coef$coefficients - 1.96*korean_coef$se
+korean_coef$ymax <- korean_coef$coefficients + 1.96*korean_coef$se
+korean_coef <- korean_coef[-1,]
+ggplot(korean_coef, aes(x=variable, y=coefficients)) + 
+  geom_point(size=1.5) +
+  geom_errorbar(aes(ymin=ymin, ymax=ymax)) +
+  geom_hline(yintercept = 0) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
+
+```{r,fig.width=9}
+se_coef$se <- se_se$sqrt.diag.vcov.se_asian_fit.1...
+se_coef$variable <- c("Intercept","restaurant_WiFino","restaurant_WiFipaid","restaurant_price_range2","restaurant_price_range3","restaurant_price_range4","garage_parking true","street_parking true","validated_parking true","lot_parking true","valet_parking true","restaurant_noise_levelloud","restaurant_noise_levelquiet","restaurant_noise_levelvery_loud","restaurant_TV1","restaurant_outdoor_seating1")
+colnames(se_coef)[1] <- "coefficients"
+se_coef$ymin <- se_coef$coefficients - 1.96*se_coef$se
+se_coef$ymax <- se_coef$coefficients + 1.96*se_coef$se
+se_coef <- se_coef[-1,]
+ggplot(se_coef, aes(x=variable, y=coefficients)) + 
+  geom_point(size=1.5) +
+  geom_errorbar(aes(ymin=ymin, ymax=ymax)) + 
+  geom_hline(yintercept = 0) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+```
+
 
 ```{r}
 #Random effect
